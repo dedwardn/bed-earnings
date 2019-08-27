@@ -7,6 +7,7 @@ Python 3 including:
 * Pandas
 * Seaborn
 * Matplotlib
+* Statsmodels
 
 ## Motivation
 Todo: List the questions of interest
@@ -15,12 +16,11 @@ Todo: List the questions of interest
 ### Input
 The data used in this repository is downloaded from here:
 * Seatle data: https://www.kaggle.com/airbnb/seattle
-* Boston data: https://www.kaggle.com/airbnb/boston
 
 More data from AirBnB is available here: http://insideairbnb.com/get-the-data.html
 
 ### Code
-* exploration.ipynb - an initial and chaotic view of the data and trial and error of different data wrangling methods
+* exploration_*.ipynb - an initial and chaotic view of the data and trial and error of different data wrangling methods. THe * indicates either the listings input data, the calendar input data or others if present. 
 * summary.ipynb - a cleaner, nicer looking summary of the questions I found the most interesting to answer. 
 
 ## Usage
