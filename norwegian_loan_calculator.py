@@ -25,7 +25,7 @@ import math
 # ---------------------------------------------------------------------------
 TAX_DEDUCTION_RATE = 0.22          # Rentefradrag – 22% deduction on interest
 CAPITAL_INCOME_TAX_RATE = 0.22     # Skatt på kapitalinntekt
-SHORT_TERM_RENTAL_THRESHOLD = 10_000  # First NOK 10,000 is tax-free
+SHORT_TERM_RENTAL_THRESHOLD = 15_000  # First NOK 15,000 is tax-free (2025)
 SHORT_TERM_RENTAL_TAXABLE_SHARE = 0.85  # 85% of income above threshold is taxable
 
 
