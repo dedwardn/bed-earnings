@@ -202,13 +202,16 @@ _est_income = sum(
 
 
 # ============================================================================
-# 3. RESORT FEES & CHARGES
+# 3. GUEST-FACING RESORT FEES (extras, not owner costs)
 # ============================================================================
+#
+# These are fees charged to guests for extras – NOT owner management costs.
+# Included for reference when setting guest pricing / listing descriptions.
 #
 # Sources: krageroresort.no/policy/, krageroresort.no/parkering/,
 #          search results from multiple platforms
 
-RESORT_FEES = {
+GUEST_RESORT_FEES = {
     "parking": {
         "covered_per_night_nok": 179,
         "source": "Hotels.com, Expedia, krageroresort.no",
@@ -300,13 +303,14 @@ RENTAL_MANAGEMENT = {
 # ============================================================================
 
 PROPERTY_COSTS_207_307 = {
-    "felleskostnader_annual_nok": 116_676,
-    "felleskostnader_monthly_nok": 9_723,
+    "felleskostnader_monthly_nok": 1_370,
+    "felleskostnader_annual_nok": 16_440,   # 1,370 × 12
+    "annual_property_tax_and_municipal_fees_nok": 8_000,  # ~8,000 from listing
     "note": "Felleskostnader likely includes: building insurance, "
             "common area maintenance, water/sewer, snow removal, "
             "garden maintenance, building management, reserve fund. "
             "Does NOT include personal utilities (electricity, internet).",
-    "source": "Krogsveen listing / Kragerø BBL",
+    "source": "Finn listing 461543499 / Krogsveen",
 }
 
 

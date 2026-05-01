@@ -43,7 +43,6 @@ from kragero_pricing_data import (
     ESTIMATED_MONTHLY_PRICING_2BR_APARTMENT,
     RENTAL_MANAGEMENT,
     PROPERTY_COSTS_207_307,
-    RESORT_FEES,
 )
 
 os.makedirs("output", exist_ok=True)
@@ -57,8 +56,8 @@ kragero = PropertyDetails(
     sqm=70,
     bedrooms=2,
     bathrooms=2,
-    monthly_fees=PROPERTY_COSTS_207_307["felleskostnader_monthly_nok"],
-    annual_property_tax=0,
+    monthly_fees=PROPERTY_COSTS_207_307["felleskostnader_monthly_nok"],  # 1,370 kr/mo
+    annual_property_tax=PROPERTY_COSTS_207_307["annual_property_tax_and_municipal_fees_nok"],
     annual_insurance=8_000,
     annual_maintenance=15_000,
     annual_utilities=18_000,
@@ -220,7 +219,7 @@ print(f"  Reported 2024 rental income (Krogsveen listing): {format_nok(116_676)}
 print(f"  Resort pool operator: {RENTAL_MANAGEMENT['operator']}")
 print(f"  Estimated resort commission: {RENTAL_MANAGEMENT['commission_estimate']['resort_pool_pct']}%")
 print(f"  Felleskostnader: {format_nok(PROPERTY_COSTS_207_307['felleskostnader_annual_nok'])}/year")
-print(f"  Covered parking: {format_nok(RESORT_FEES['parking']['covered_per_night_nok'])}/night")
+print(f"  Property tax & municipal fees: {format_nok(PROPERTY_COSTS_207_307['annual_property_tax_and_municipal_fees_nok'])}/year")
 print(f"  Pricing data from: KAYAK, Momondo, Airbnb, Booking.com, HotelsCombined")
 print()
 
