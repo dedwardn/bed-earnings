@@ -312,32 +312,36 @@ elif page == "Short-Term Rental Investment":
 
     # --- Sidebar: Property ---
     st.sidebar.header("Property Details")
-    prop_name = st.sidebar.text_input("Property name", value="Kragero Resort 207/307")
+    prop_name = st.sidebar.text_input("Property name", value="Kragerø Resort 633/634")
     purchase_price = st.sidebar.number_input(
         "Purchase price (NOK)", min_value=100_000, max_value=50_000_000,
-        value=3_900_000, step=100_000, format="%d",
+        value=3_578_340, step=100_000, format="%d",
     )
-    prop_sqm = st.sidebar.number_input("Size (sqm)", min_value=10, max_value=500, value=70)
+    prop_sqm = st.sidebar.number_input("Size (sqm)", min_value=10, max_value=500, value=77)
     prop_bedrooms = st.sidebar.number_input("Bedrooms", min_value=1, max_value=10, value=2)
     prop_bathrooms = st.sidebar.number_input("Bathrooms", min_value=1, max_value=5, value=2)
     prop_monthly_fees = st.sidebar.number_input(
         "Monthly fees / felleskostnader (NOK)", min_value=0, max_value=30_000,
-        value=9_723, step=100,
+        value=1_371, step=100,
+    )
+    prop_property_tax = st.sidebar.number_input(
+        "Annual property tax / eiendomsskatt (NOK)", min_value=0, max_value=50_000, value=7_877, step=500,
     )
     prop_insurance = st.sidebar.number_input(
-        "Annual insurance (NOK)", min_value=0, max_value=50_000, value=8_000, step=500,
+        "Annual insurance (NOK)", min_value=0, max_value=50_000, value=0, step=500,
     )
     prop_maintenance = st.sidebar.number_input(
-        "Annual maintenance (NOK)", min_value=0, max_value=100_000, value=15_000, step=1_000,
+        "Annual maintenance (NOK)", min_value=0, max_value=100_000, value=10_000, step=1_000,
     )
     prop_utilities = st.sidebar.number_input(
-        "Annual utilities (NOK)", min_value=0, max_value=100_000, value=18_000, step=1_000,
+        "Annual utilities (NOK)", min_value=0, max_value=100_000, value=0, step=1_000,
     )
 
     prop = PropertyDetails(
         name=prop_name, purchase_price=purchase_price, sqm=prop_sqm,
         bedrooms=prop_bedrooms, bathrooms=prop_bathrooms,
-        monthly_fees=prop_monthly_fees, annual_insurance=prop_insurance,
+        monthly_fees=prop_monthly_fees, annual_property_tax=prop_property_tax,
+        annual_insurance=prop_insurance,
         annual_maintenance=prop_maintenance, annual_utilities=prop_utilities,
     )
 

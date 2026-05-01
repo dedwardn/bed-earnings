@@ -3,7 +3,7 @@ Kragerø Resort – Collected Pricing Dataset
 ==========================================
 
 Scraped / researched from multiple booking platforms and public sources.
-All prices are per night for a 2-bedroom apartment (~70 sqm) unless noted.
+All prices are per night for a 2-bedroom apartment (~77 sqm) unless noted.
 
 Data collection date: May 2026
 Sources listed per data point.
@@ -32,7 +32,7 @@ Sources listed per data point.
 #   [9] Booking.com - https://www.booking.com/hotel/no/resort-kragero.html
 #   [10] Klook    - https://www.klook.com/en-US/hotels/detail/497915-krager-resort/
 #   [11] Resort booking - https://booking.krageroresort.no/en/accommodation
-#   [12] Krogsveen listing - rental income = 116,676 kr for 2024
+#   [12] Finn listing 461543499 – Kragerø Resort 633/634 (PrivatMegleren)
 
 # USD to NOK approximate rate: 1 USD ≈ 10.5 NOK (May 2026)
 USD_TO_NOK = 10.5
@@ -63,7 +63,7 @@ HOTEL_ROOM_RATES = {
 }
 
 # ---------------------------------------------------------------------------
-# APARTMENT / AIRBNB rates (2-bedroom, comparable to unit 207/307)
+# APARTMENT / AIRBNB rates (2-bedroom, comparable to unit 633/634)
 # ---------------------------------------------------------------------------
 APARTMENT_RATES_AIRBNB = {
     "description": "Airbnb listings at/near Kragerø Resort for apartments and cabins",
@@ -158,12 +158,9 @@ RESORT_ROOM_TYPES = {
 # - Airbnb comparables: 2,069–2,447 NOK in peak season
 # - Low season deals from $109 ≈ 1,145 NOK (hotel), apartments ~1,300-1,500 NOK
 # - Peak (Jul) can reach $760 ≈ 7,980 NOK for premium units
-# - Reported rental income 116,676 NOK for 2024 → reverse-engineer occupancy
 #
-# Reverse-engineering from reported income of 116,676 kr (2024):
-#   If avg rate ~1,600 NOK and ~73 nights → 116,800 (matches)
-#   If avg rate ~1,800 NOK and ~65 nights → 117,000 (matches)
-#   This suggests moderate occupancy (~18-20%) across the year
+# These are estimates for independent Airbnb/Booking management.
+# No verified rental income is available from the listing.
 
 ESTIMATED_MONTHLY_PRICING_2BR_APARTMENT = [
     {"month": "Jan", "nightly_rate_nok": 1_100, "occupancy_pct": 8,
@@ -198,7 +195,6 @@ _est_income = sum(
     [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][i]
     for i, m in enumerate(ESTIMATED_MONTHLY_PRICING_2BR_APARTMENT)
 )
-# Should be in range of ~116,676 kr (reported 2024 income)
 
 
 # ============================================================================
@@ -256,7 +252,7 @@ GUEST_RESORT_FEES = {
 #
 # Sources:
 #   - fredensborgfritid.no/destinasjoner/kragero/prosjekter/kragero-resort-fri
-#   - Krogsveen listing (Stabbestadveien 1, unit 207/307)
+#   - Finn listing 461543499 (unit 633/634, PrivatMegleren Kragerø)
 #   - Skatteetaten ruling on similar resort arrangements
 
 RENTAL_MANAGEMENT = {
@@ -277,7 +273,7 @@ RENTAL_MANAGEMENT = {
         "Can also list on Airbnb/Booking independently",
     ],
     "commission_estimate": {
-        "resort_pool_pct": 30,  # Estimated 30% of gross rental to resort
+        "resort_pool_pct": 30,
         "note": "Exact commission not publicly disclosed. Industry standard "
                 "for Norwegian resort rental pools is 25-40%. Skatteetaten "
                 "ruling references 30% to operator, 70% to owner as typical. "
@@ -288,57 +284,57 @@ RENTAL_MANAGEMENT = {
             "Comparable: Evolve/global avg 10-30% management fee",
         ],
     },
-    "reported_income_2024": {
-        "gross_nok": 116_676,
-        "note": "Reported for unit 207/307. This is likely the owner's share "
-                "AFTER the resort's commission, meaning gross bookings were "
-                "likely ~166,680 NOK (at 30% commission) or ~145,845 (at 20%).",
-        "source": "Krogsveen listing",
-    },
 }
 
 
 # ============================================================================
-# 5. PROPERTY COSTS – UNIT 207/307
+# 5. PROPERTY COSTS – UNIT 633/634
 # ============================================================================
 
-PROPERTY_COSTS_207_307 = {
-    "felleskostnader_monthly_nok": 1_370,
-    "felleskostnader_annual_nok": 16_440,   # 1,370 × 12
-    "annual_property_tax_and_municipal_fees_nok": 8_000,  # ~8,000 from listing
-    "note": "Felleskostnader likely includes: building insurance, "
-            "common area maintenance, water/sewer, snow removal, "
-            "garden maintenance, building management, reserve fund. "
-            "Does NOT include personal utilities (electricity, internet).",
-    "source": "Finn listing 461543499 / Krogsveen",
+PROPERTY_COSTS = {
+    "unit": "633/634",
+    "address": "Kragerø Resort 633/634, 3788 Stabbestad",
+    "prisantydning_nok": 3_490_000,
+    "totalpris_nok": 3_578_340,
+    "omkostninger_nok": 88_340,
+    "felleskostnader_monthly_nok": 1_371,
+    "felleskostnader_annual_nok": 16_452,    # 1,371 × 12
+    "kommunale_avgifter_annual_nok": 7_877,
+    "eiendomsskatt_annual_nok": 7_877,
+    "formuesverdi_nok": 712_500,
+    "sqm": 77,
+    "bedrooms": 2,
+    "bathrooms": 2,             # 2 assumed from listing description
+    "terraces": 2,
+    "sengeplasser": 4,
+    "etasje": 2,
+    "byggeaar": 2007,
+    "eieform": "Selveier",
+    "boligtype": "Hytte",
+    "energimerking": "B",
+    "felleskostnader_includes": (
+        "Kommunale avgifter (excl. eiendomsskatt), festeavgift, "
+        "utvendig forsikring, utendørs drift (gartner, brøyting etc), "
+        "TV/internett og vaktmestertjenester, hotelltjenester, "
+        "forretningsførsel og revisjon samt godtgjørelse til styret."
+    ),
+    "broker": "PrivatMegleren Kragerø",
+    "broker_agent": "Mathias Olsen",
+    "source": "Finn listing 461543499",
 }
 
 
 # ============================================================================
-# 6. VALIDATION – Does the data make sense?
+# 6. ESTIMATED ANNUAL INCOME
 # ============================================================================
 #
-# Reported income: 116,676 NOK (2024) from Krogsveen listing
-# Estimated annual income from our pricing model: ~216,040 NOK
-#
-# The gap makes sense because our model represents OPTIMISTIC independent
-# Airbnb management, while the reported 116,676 NOK likely reflects either:
-#
-# (a) Resort pool management with ~30% commission:
-#     Gross bookings ≈ 166,680 NOK → owner gets 70% ≈ 116,676 (exact match)
-#     This is the most likely explanation.
-#
-# (b) Lower actual occupancy than our optimistic estimates:
-#     At our rates but ~54% of our occupancy → ~116,000 NOK
-#
-# For the example analysis we provide TWO scenarios:
-#   1. Independent management (Airbnb/Booking, self-managed): ~216k gross
-#   2. Resort pool management (Fredensborg Fritid, 30% commission): ~117k net to owner
+# No verified rental income is reported on the listing.
+# Our pricing model estimates ~216k NOK gross for independent management.
+# With resort pool (~30% commission), owner would net ~151k NOK.
 
 if __name__ == "__main__":
-    print(f"Estimated annual income from pricing model: {_est_income:,.0f} NOK")
-    print(f"Reported 2024 income (Krogsveen):           116,676 NOK")
-    print(f"Difference:                                 {_est_income - 116_676:,.0f} NOK")
+    print(f"Estimated annual gross income (independent): {_est_income:,.0f} NOK")
+    print(f"Estimated owner income (resort pool, 30%):   {_est_income * 0.70:,.0f} NOK")
     print()
 
     print("Monthly pricing breakdown:")

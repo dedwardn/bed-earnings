@@ -2,16 +2,18 @@
 Example: Kragerø Resort Apartment Investment Analysis
 =====================================================
 
-Based on Finn listing 461543499 – Stabbestadveien 1, Kragerø Resort 207/307
-(Krogsveen listing). 2 bedrooms, 2 bathrooms, 3 terraces, sea view,
-boat berth, golf rights. Sold fully furnished.
+Based on Finn listing 461543499 – Kragerø Resort 633/634, 3788 Stabbestad
+(PrivatMegleren Kragerø). 2 bedrooms, 2 terraces, 77 sqm, sea view,
+boat berth, golf cart. Sold fully furnished. Built 2007, selveier.
 
-Uses REAL collected pricing data from kragero_pricing_data.py, sourced from:
+Prisantydning: 3,490,000 kr | Totalpris: 3,578,340 kr
+Felleskost: 1,371 kr/md | Eiendomsskatt: 7,877 kr/year
+
+Uses collected pricing data from kragero_pricing_data.py, sourced from:
 - KAYAK, Momondo, HotelsCombined, Travelocity hotel room rates
 - Airbnb comparable apartment/cabin listings in Kragerø area
 - Booking.com Kragerø Resort rates
 - Resort's own booking system (booking.krageroresort.no)
-- Krogsveen listing reported rental income: 116,676 NOK (2024)
 
 Two management scenarios:
 1. Independent (self-managed via Airbnb/Booking.com)
@@ -42,26 +44,31 @@ from short_term_rental import (
 from kragero_pricing_data import (
     ESTIMATED_MONTHLY_PRICING_2BR_APARTMENT,
     RENTAL_MANAGEMENT,
-    PROPERTY_COSTS_207_307,
+    PROPERTY_COSTS,
 )
 
 os.makedirs("output", exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Property: Kragerø Resort 207/307
+# Property: Kragerø Resort 633/634
 # ---------------------------------------------------------------------------
+# Felleskostnader (1,371/md) already includes: kommunale avgifter (excl.
+# eiendomsskatt), festeavgift, external insurance, TV/internet,
+# vaktmester, hotel services, gardener/snow clearing, board fees.
+# So we do NOT add separate insurance or utilities — only eiendomsskatt
+# and owner maintenance/wear costs on top.
 kragero = PropertyDetails(
-    name="Kragerø Resort 207/307 – Stabbestadveien 1",
-    purchase_price=3_900_000,
-    sqm=70,
-    bedrooms=2,
-    bathrooms=2,
-    monthly_fees=PROPERTY_COSTS_207_307["felleskostnader_monthly_nok"],  # 1,370 kr/mo
-    annual_property_tax=PROPERTY_COSTS_207_307["annual_property_tax_and_municipal_fees_nok"],
-    annual_insurance=8_000,
-    annual_maintenance=15_000,
-    annual_utilities=18_000,
-    formuesverdi=800_000,
+    name="Kragerø Resort 633/634 – Stabbestad",
+    purchase_price=PROPERTY_COSTS["totalpris_nok"],   # 3,578,340 kr
+    sqm=PROPERTY_COSTS["sqm"],                        # 77 sqm
+    bedrooms=PROPERTY_COSTS["bedrooms"],               # 2
+    bathrooms=PROPERTY_COSTS["bathrooms"],              # 2
+    monthly_fees=PROPERTY_COSTS["felleskostnader_monthly_nok"],  # 1,371 kr/mo
+    annual_property_tax=PROPERTY_COSTS["eiendomsskatt_annual_nok"],  # 7,877 kr/yr
+    annual_insurance=0,          # Included in felleskostnader
+    annual_maintenance=10_000,   # Owner wear/tear beyond what fellesskap covers
+    annual_utilities=0,          # TV/internet included in felleskostnader
+    formuesverdi=PROPERTY_COSTS["formuesverdi_nok"],   # 712,500 kr
 )
 
 # ---------------------------------------------------------------------------
@@ -98,19 +105,13 @@ monthly_pricing_independent = MonthlyPricing(
 )
 
 # ---------------------------------------------------------------------------
-# Pricing Model 3: Resort pool – lower occupancy matching reported income
+# Pricing Model 3: Resort pool management
 # ---------------------------------------------------------------------------
-# The reported 116,676 NOK (2024) is likely the owner's 70% share after
-# resort commission. Gross bookings ≈ 166,680 NOK.
-# We model this as the resort's actual achieved occupancy (lower than
-# independent management) at similar rates.
+# Resort handles bookings/cleaning/marketing and takes ~30% commission.
+# We assume same rates but slightly lower occupancy since the resort
+# may not optimise pricing as aggressively as an independent host.
 resort_commission_rate = RENTAL_MANAGEMENT["commission_estimate"]["resort_pool_pct"] / 100
-
-# Scale occupancy down so that owner's net income ≈ 116,676 NOK
-# Gross from our model: 216,040. After 30% commission: 151,228.
-# Reported: 116,676. Ratio: 116,676 / (216,040 * 0.70) = 0.771
-# So resort achieves ~77% of our independent occupancy estimates.
-RESORT_OCCUPANCY_FACTOR = 0.77
+RESORT_OCCUPANCY_FACTOR = 0.85
 
 monthly_pricing_resort = MonthlyPricing(
     months=[
@@ -153,7 +154,7 @@ ops_resort = OperatingCosts(
 # Financing
 # ---------------------------------------------------------------------------
 loan = LoanDetails(
-    loan_amount=2_925_000,             # 75% LTV
+    loan_amount=2_683_755,             # 75% of totalpris 3,578,340
     annual_interest_rate=0.05,         # 5%
     term_years=25,
     loan_type="annuity",
@@ -213,13 +214,15 @@ print_scenario_comparison(results)
 # Data source summary
 # ---------------------------------------------------------------------------
 print("\n" + "=" * 80)
-print("  DATA SOURCES")
+print("  LISTING & DATA SOURCES")
 print("=" * 80)
-print(f"  Reported 2024 rental income (Krogsveen listing): {format_nok(116_676)}")
+print(f"  Finn listing: 461543499 – {PROPERTY_COSTS['address']}")
+print(f"  Prisantydning: {format_nok(PROPERTY_COSTS['prisantydning_nok'])}")
+print(f"  Totalpris: {format_nok(PROPERTY_COSTS['totalpris_nok'])}")
+print(f"  Felleskostnader: {format_nok(PROPERTY_COSTS['felleskostnader_annual_nok'])}/year ({format_nok(PROPERTY_COSTS['felleskostnader_monthly_nok'])}/md)")
+print(f"  Eiendomsskatt: {format_nok(PROPERTY_COSTS['eiendomsskatt_annual_nok'])}/year")
 print(f"  Resort pool operator: {RENTAL_MANAGEMENT['operator']}")
 print(f"  Estimated resort commission: {RENTAL_MANAGEMENT['commission_estimate']['resort_pool_pct']}%")
-print(f"  Felleskostnader: {format_nok(PROPERTY_COSTS_207_307['felleskostnader_annual_nok'])}/year")
-print(f"  Property tax & municipal fees: {format_nok(PROPERTY_COSTS_207_307['annual_property_tax_and_municipal_fees_nok'])}/year")
 print(f"  Pricing data from: KAYAK, Momondo, Airbnb, Booking.com, HotelsCombined")
 print()
 
