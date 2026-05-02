@@ -74,16 +74,17 @@ kragero = PropertyDetails(
 # ---------------------------------------------------------------------------
 # Pricing Model 1: High/Low Season (simplified from collected data)
 # ---------------------------------------------------------------------------
-# Derived from the monthly data: summer avg ~2,467 NOK, shoulder ~1,600, low ~1,200
+# Derived from verified rates: Jun ~2,570, Jul ~3,000, Aug ~2,140 → avg 2,570
+# Shoulder: May ~2,000, Sep ~1,500 → avg 1,750
 high_low_pricing = HighLowSeasonPricing(
-    high_season_nightly_rate=2_467,    # Jun-Aug avg from collected data
-    low_season_nightly_rate=1_200,     # Oct-Apr avg from collected data
-    shoulder_nightly_rate=1_600,       # May, Sep from collected data
+    high_season_nightly_rate=2_570,    # Jun-Aug avg from verified prices
+    low_season_nightly_rate=1_200,     # Oct-Apr estimated
+    shoulder_nightly_rate=1_750,       # May, Sep avg from verified prices
     high_season_months=3,
     shoulder_season_months=2,
-    high_season_occupancy=0.65,        # Jun-Aug avg from collected data
-    low_season_occupancy=0.14,         # Oct-Apr avg from collected data
-    shoulder_occupancy=0.275,          # May, Sep avg from collected data
+    high_season_occupancy=0.65,        # Jun-Aug avg estimated
+    low_season_occupancy=0.14,         # Oct-Apr estimated
+    shoulder_occupancy=0.275,          # May, Sep estimated
     cleaning_fee_per_stay=800,
     avg_stay_nights=3.5,
 )
