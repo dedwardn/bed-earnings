@@ -21,6 +21,20 @@ from norwegian_loan_calculator import (
     format_nok,
     TAX_DEDUCTION_RATE,
 )
+from extra_payments_analysis import (
+    HISTORICAL_RETURNS,
+    RENTEFRADRAG_RATE as EPA_RENTEFRADRAG_RATE,
+    STOCK_GAIN_TAX_RATE,
+    CAPITAL_INCOME_TAX_RATE,
+    DEFAULT_ALTERNATIVES,
+    CONSERVATIVE_ALTERNATIVES,
+    OPTIMISTIC_ALTERNATIVES,
+    MortgageDetails as EPAMortgageDetails,
+    simulate_mortgage as epa_simulate_mortgage,
+    simulate_investment,
+    analyze_extra_payments,
+    _estimate_pct_beating_hurdle,
+)
 from short_term_rental import (
     PropertyDetails,
     HighLowSeasonPricing,
@@ -53,7 +67,7 @@ st.title("Norwegian Property Finance Tools")
 
 page = st.radio(
     "Select tool",
-    ["Loan Calculator", "Short-Term Rental Investment"],
+    ["Loan Calculator", "Short-Term Rental Investment", "Extra Payments vs Investing"],
     horizontal=True,
 )
 
@@ -634,4 +648,410 @@ elif page == "Short-Term Rental Investment":
 Sources: [Skatteetaten](https://www.skatteetaten.no/en/person/taxes/get-the-taxes-right/property-and-belongings/houses-property-and-plots-of-land/letting-of-houses-and-property/short-term-letting-of-dwellings-and-holiday-homes/tax-rules-for-short-term-letting-of-homes-and-holiday-homes/) |
 [Airbnb Tax Guide 2025](https://assets.airbnb.com/help/Airbnb_TaxGuide2025_Norway_ENGLISH.pdf) |
 [BnbUtleie.no](https://bnbutleie.no/skatteregler-korttidsutleie-2025/)
+""")
+
+
+# =========================================================================
+# PAGE 3: EXTRA PAYMENTS vs INVESTING
+# =========================================================================
+elif page == "Extra Payments vs Investing":
+    st.markdown("Should you pay extra on your mortgage or invest the money? "
+                "Analysis grounded in historical rolling-window returns.")
+
+    # --- Sidebar: Mortgage ---
+    st.sidebar.header("Your Mortgage")
+    epa_balance = st.sidebar.number_input(
+        "Remaining balance (NOK)", min_value=100_000, max_value=50_000_000,
+        value=3_500_000, step=100_000, format="%d", key="epa_bal",
+    )
+    epa_rate = st.sidebar.slider(
+        "Interest rate (%)", min_value=0.5, max_value=12.0, value=5.0, step=0.1, key="epa_rate",
+    )
+    epa_years = st.sidebar.slider(
+        "Remaining term (years)", min_value=1, max_value=40, value=20, key="epa_years",
+    )
+    epa_loan_type = st.sidebar.radio("Loan type", ["annuity", "serial"], key="epa_type")
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("Extra Payment Amounts")
+    epa_extra_1 = st.sidebar.number_input("Scenario 1 (NOK/mo)", value=2_000, step=500, key="epa_e1")
+    epa_extra_2 = st.sidebar.number_input("Scenario 2 (NOK/mo)", value=5_000, step=500, key="epa_e2")
+    epa_extra_3 = st.sidebar.number_input("Scenario 3 (NOK/mo)", value=10_000, step=500, key="epa_e3")
+    epa_extras = sorted(set(int(e) for e in [epa_extra_1, epa_extra_2, epa_extra_3] if e > 0))
+
+    mortgage = EPAMortgageDetails(
+        remaining_balance=epa_balance,
+        annual_interest_rate=epa_rate / 100,
+        remaining_years=epa_years,
+        loan_type=epa_loan_type,
+    )
+
+    effective_rate = mortgage.annual_interest_rate * (1 - EPA_RENTEFRADRAG_RATE)
+
+    # --- KPI row ---
+    st.markdown("---")
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        st.metric("Nominal Rate", f"{mortgage.annual_interest_rate*100:.2f}%")
+    with k2:
+        st.metric("After Rentefradrag", f"{effective_rate*100:.2f}%")
+    with k3:
+        needed_ask = effective_rate / (1 - STOCK_GAIN_TAX_RATE)
+        st.metric("Need pre-tax (ASK)", f"{needed_ask*100:.2f}%")
+    with k4:
+        needed_savings = effective_rate / (1 - CAPITAL_INCOME_TAX_RATE)
+        st.metric("Need pre-tax (savings)", f"{needed_savings*100:.2f}%")
+
+    st.info(f"Your effective mortgage cost after rentefradrag is **{effective_rate*100:.2f}%**. "
+            f"Any alternative must beat this after tax to justify investing instead of paying down the mortgage.")
+
+    # =================================================================
+    # Section 1: Historical Reference Data
+    # =================================================================
+    st.markdown("---")
+    st.subheader("Historical Rolling-Window Returns")
+    st.caption("All figures are annualized nominal total returns. "
+               "Rolling windows show the range of outcomes an investor actually experienced.")
+
+    hist_tab1, hist_tab2, hist_tab3 = st.tabs([
+        "Reference Table", "Rolling Window Chart", "Beat-the-Mortgage Odds",
+    ])
+
+    with hist_tab1:
+        ref_rows = []
+        for key, label in [
+            ("sp500", "S&P 500"),
+            ("msci_world", "MSCI World"),
+            ("global_bonds", "Global Bonds"),
+        ]:
+            d = HISTORICAL_RETURNS[key]
+            r10 = d["rolling_10yr"]
+            r20 = d.get("rolling_20yr", {})
+            ref_rows.append({
+                "Index": label,
+                "Source Period": d["source"],
+                "10yr Worst": f"{r10['worst']*100:+.1f}%",
+                "10yr 25th": f"{r10['p25']*100:.1f}%",
+                "10yr Median": f"{r10['median']*100:.1f}%",
+                "10yr 75th": f"{r10['p75']*100:.1f}%",
+                "10yr Best": f"{r10['best']*100:.1f}%",
+                "20yr Worst": f"{r20.get('worst', 0)*100:+.1f}%" if r20 else "—",
+                "20yr Median": f"{r20.get('median', 0)*100:.1f}%" if r20 else "—",
+                "20yr Best": f"{r20.get('best', 0)*100:.1f}%" if r20 else "—",
+            })
+        st.dataframe(pd.DataFrame(ref_rows), width="stretch", hide_index=True)
+
+        infl = HISTORICAL_RETURNS["norwegian_inflation"]
+        st.markdown(f"**Norwegian CPI inflation:** 25yr avg {infl['avg_25yr']*100:.1f}%, "
+                    f"recent decade {infl['recent_decade_avg']*100:.1f}% "
+                    f"(2022–23 spike pulls recent average up)")
+
+        with st.expander("Data Sources"):
+            st.markdown("""
+| Source | Coverage |
+|--------|----------|
+| **S&P 500** | QuantFlowLab (1928–2025), Trade That Swing, Crestmont Research |
+| **MSCI World** | MSCI factsheet, Curvo.eu, InvestingInTheWeb; median from Cautaerts analysis (1970–2018) |
+| **Global Bonds** | Alliance Bernstein (Bloomberg Global Agg, 30yr hedged USD), YCharts |
+| **Oslo Bors** | World Bank / TheGlobalEconomy (1997–2021), arithmetic mean 12.0% |
+| **Norwegian CPI** | SSB, World Bank, Macrotrends |
+""")
+
+    with hist_tab2:
+        fig = go.Figure()
+        for key, label, color in [
+            ("sp500", "S&P 500", "#2196F3"),
+            ("msci_world", "MSCI World", "#66BB6A"),
+            ("global_bonds", "Global Bonds", "#FF7043"),
+        ]:
+            r10 = HISTORICAL_RETURNS[key]["rolling_10yr"]
+            percentiles = ["Worst", "25th", "Median", "75th", "Best"]
+            values = [r10["worst"]*100, r10["p25"]*100, r10["median"]*100, r10["p75"]*100, r10["best"]*100]
+            fig.add_trace(go.Scatter(
+                x=percentiles, y=values, mode="lines+markers", name=label,
+                line=dict(color=color, width=2.5), marker=dict(size=10),
+            ))
+
+        fig.add_hline(
+            y=effective_rate*100, line_dash="dash", line_color="red", line_width=2,
+            annotation_text=f"Your hurdle: {effective_rate*100:.2f}% (after tax)",
+            annotation_position="top left",
+        )
+        hurdle_ask = effective_rate / (1 - STOCK_GAIN_TAX_RATE) * 100
+        fig.add_hline(
+            y=hurdle_ask, line_dash="dot", line_color="darkred", line_width=1.5,
+            annotation_text=f"Pre-tax hurdle (ASK): {hurdle_ask:.2f}%",
+            annotation_position="bottom right",
+        )
+
+        fig.update_layout(
+            title="Rolling 10-Year Return Distribution by Index",
+            xaxis_title="Percentile", yaxis_title="Annualized Return (%)",
+            yaxis_ticksuffix="%", height=500, hovermode="x unified",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with hist_tab3:
+        st.markdown("What percentage of historical rolling 10-year windows would have "
+                    "beaten your mortgage's effective cost?")
+
+        odds_rows = []
+        for key, label, tax in [
+            ("msci_world", "Global Index Fund (ASK)", STOCK_GAIN_TAX_RATE),
+            ("sp500", "US Equity (ASK)", STOCK_GAIN_TAX_RATE),
+            ("global_bonds", "Bond Fund", CAPITAL_INCOME_TAX_RATE),
+        ]:
+            r10 = HISTORICAL_RETURNS[key]["rolling_10yr"]
+            needed = effective_rate / (1 - tax)
+            pct = _estimate_pct_beating_hurdle(r10, needed)
+            after_tax_median = r10["median"] * (1 - tax)
+            verdict = "INVEST" if after_tax_median > effective_rate else "PAY LOAN"
+            odds_rows.append({
+                "Asset Class": label,
+                "Tax Rate": f"{tax*100:.1f}%",
+                "Need Pre-tax": f"{needed*100:.2f}%",
+                "Median Return": f"{r10['median']*100:.1f}%",
+                "After-tax Median": f"{after_tax_median*100:.2f}%",
+                "Windows Beating Mortgage": f"{pct:.0f}%",
+                "Verdict (at median)": verdict,
+            })
+        st.dataframe(pd.DataFrame(odds_rows), width="stretch", hide_index=True)
+
+        # Bar chart of odds
+        fig = go.Figure()
+        names = [r["Asset Class"] for r in odds_rows]
+        pcts = [float(r["Windows Beating Mortgage"].rstrip("%")) for r in odds_rows]
+        colors = ["#66BB6A" if p >= 50 else "#EF5350" for p in pcts]
+        fig.add_trace(go.Bar(x=names, y=pcts, marker_color=colors, text=[f"{p:.0f}%" for p in pcts],
+                             textposition="outside"))
+        fig.add_hline(y=50, line_dash="dash", line_color="gray",
+                      annotation_text="50% threshold")
+        fig.update_layout(title="% of Historical 10yr Windows That Beat Your Mortgage",
+                          yaxis_title="Percentage (%)", yaxis_range=[0, 105], height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+        r20_available = {k: v for k, v in HISTORICAL_RETURNS.items()
+                         if "rolling_20yr" in v}
+        if r20_available:
+            st.markdown("**20-Year Perspective:**")
+            for key, data in r20_available.items():
+                r20 = data["rolling_20yr"]
+                st.markdown(f"- **{data['description']}**: worst 20yr window returned "
+                            f"**{r20['worst']*100:+.1f}%**/yr, median **{r20['median']*100:.1f}%**/yr")
+            st.markdown("No 20-year rolling window for S&P 500 has ever been negative.")
+
+    # =================================================================
+    # Section 2: Extra Payments Analysis
+    # =================================================================
+    if epa_extras:
+        st.markdown("---")
+        st.subheader("Extra Payment Scenarios")
+
+        results = analyze_extra_payments(mortgage, epa_extras, alternatives=DEFAULT_ALTERNATIVES)
+
+        # Baseline info
+        baseline_interest = results["baseline_total_interest"]
+        baseline_months = results["baseline_months"]
+        st.markdown(f"**Baseline:** {baseline_months} months ({baseline_months/12:.1f} years), "
+                    f"total interest {format_nok(baseline_interest)}, "
+                    f"after rentefradrag {format_nok(baseline_interest * (1 - EPA_RENTEFRADRAG_RATE))}")
+
+        # Break-even table
+        st.markdown("#### Break-Even Returns")
+        be_rows = []
+        for name, info in results["breakeven_returns"].items():
+            after_tax_return = info["alt_return"] * (1 - info["alt_tax_rate"])
+            be_rows.append({
+                "Alternative": name,
+                "Tax Rate": f"{info['alt_tax_rate']*100:.1f}%",
+                "Need Pre-tax": f"{info['pretax_needed']*100:.2f}%",
+                "Actual Return": f"{info['alt_return']*100:.1f}%",
+                "After-tax Return": f"{after_tax_return*100:.2f}%",
+                "Verdict": "INVEST" if info["beats_mortgage"] else "PAY LOAN",
+            })
+        st.dataframe(pd.DataFrame(be_rows), width="stretch", hide_index=True)
+
+        # Per-scenario tabs
+        scenario_tabs = st.tabs([f"+{format_nok(e)}/mo" for e in epa_extras])
+        milestones = sorted(set(y for y in [5, 10, 15, 20, epa_years] if y <= epa_years))
+
+        for tab, sc in zip(scenario_tabs, results["scenarios"]):
+            with tab:
+                extra = sc["extra_monthly"]
+                col_a, col_b, col_c, col_d = st.columns(4)
+                with col_a:
+                    st.metric("Months to Payoff", f"{sc['months_to_payoff']}",
+                              delta=f"-{sc['months_saved']} months")
+                with col_b:
+                    st.metric("Interest Saved", format_nok(sc["interest_saved"]))
+                with col_c:
+                    st.metric("After Rentefradrag", format_nok(sc["interest_saved_after_tax"]))
+                with col_d:
+                    roi = (sc["interest_saved_after_tax"] / sc["total_extra_paid"] * 100
+                           if sc["total_extra_paid"] > 0 else 0)
+                    st.metric("Return on Extra", f"{roi:.1f}%")
+
+                # Wealth comparison chart
+                fig = go.Figure()
+                mort_wealth = sc["mortgage_paydown_wealth"][:epa_years]
+                fig.add_trace(go.Scatter(
+                    x=list(range(1, len(mort_wealth)+1)), y=mort_wealth,
+                    name=f"Mortgage paydown", line=dict(color="#2196F3", width=3),
+                ))
+                alt_colors = ["#66BB6A", "#FF7043", "#AB47BC", "#EF5350"]
+                for i, (alt_name, alt_data) in enumerate(sc["alternatives"].items()):
+                    sched = alt_data["schedule"]
+                    alt_w = [s["net_after_tax"] for s in sched][:epa_years]
+                    fig.add_trace(go.Scatter(
+                        x=list(range(1, len(alt_w)+1)), y=alt_w,
+                        name=f"{alt_name} ({alt_data['alt_return']*100:.1f}%)",
+                        line=dict(color=alt_colors[i % len(alt_colors)], width=1.5),
+                    ))
+                fig.update_layout(
+                    title=f"Net Wealth: +{format_nok(extra)}/mo Mortgage Paydown vs Alternatives",
+                    xaxis_title="Years", yaxis_title="Net Wealth Gain (NOK)",
+                    yaxis_tickformat=",", hovermode="x unified", height=500,
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Milestone table
+                m_rows = []
+                for y in milestones:
+                    if y > len(sc["mortgage_paydown_wealth"]):
+                        continue
+                    row = {"Year": y, "Mortgage Paydown": format_nok(sc["mortgage_paydown_wealth"][y-1])}
+                    best_name, best_val = "Mortgage", sc["mortgage_paydown_wealth"][y-1]
+                    for alt_name, alt_data in sc["alternatives"].items():
+                        sched = alt_data["schedule"]
+                        val = sched[y-1]["net_after_tax"] if y <= len(sched) else alt_data["net_at_end"]
+                        row[alt_name[:25]] = format_nok(val)
+                        if val > best_val:
+                            best_name, best_val = alt_name, val
+                    row["Best"] = best_name[:20]
+                    m_rows.append(row)
+                st.dataframe(pd.DataFrame(m_rows), width="stretch", hide_index=True)
+
+        # =================================================================
+        # Section 3: Balance trajectory
+        # =================================================================
+        st.markdown("---")
+        st.subheader("Mortgage Balance Trajectories")
+        fig = go.Figure()
+        colors_traj = ["#78909C", "#2196F3", "#66BB6A", "#FF7043", "#AB47BC"]
+        for i, extra in enumerate([0] + epa_extras):
+            sched = epa_simulate_mortgage(mortgage, extra)
+            months_list = [s["month"]/12 for s in sched]
+            balances = [s["balance"] for s in sched]
+            label = "No extra" if extra == 0 else f"+{format_nok(extra)}/mo"
+            fig.add_trace(go.Scatter(
+                x=months_list, y=balances, name=label,
+                line=dict(color=colors_traj[i % len(colors_traj)], width=2),
+            ))
+        fig.update_layout(
+            title="Mortgage Balance Over Time",
+            xaxis_title="Years", yaxis_title="Remaining Balance (NOK)",
+            yaxis_tickformat=",", hovermode="x unified", height=450,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # =================================================================
+        # Section 4: Sensitivity heatmap
+        # =================================================================
+        st.markdown("---")
+        st.subheader("Sensitivity: Interest Saved (after tax)")
+
+        rates_sens = [0.03, 0.04, 0.05, 0.055, 0.06, 0.07]
+        extras_sens = [1000, 2000, 3000, 5000, 7500, 10000]
+
+        heat_data = []
+        for extra in extras_sens:
+            row = []
+            for rate in rates_sens:
+                temp_m = EPAMortgageDetails(epa_balance, rate, epa_years, epa_loan_type)
+                base = epa_simulate_mortgage(temp_m, 0)
+                with_extra = epa_simulate_mortgage(temp_m, extra)
+                saved = sum(b["interest"] for b in base) - sum(e["interest"] for e in with_extra)
+                row.append(saved * (1 - EPA_RENTEFRADRAG_RATE))
+            heat_data.append(row)
+
+        heat_array = np.array(heat_data)
+        fig = go.Figure(data=go.Heatmap(
+            z=heat_array / 1000,
+            x=[f"{r*100:.1f}%" for r in rates_sens],
+            y=[f"{e:,.0f} kr" for e in extras_sens],
+            colorscale="YlOrRd",
+            text=[[f"{v/1000:.0f}k" for v in row] for row in heat_data],
+            texttemplate="%{text}",
+            colorbar_title="Saved (k NOK)",
+        ))
+        fig.update_layout(
+            title="Interest Saved (thousands NOK, after 22% rentefradrag) by Rate & Extra Payment",
+            xaxis_title="Interest Rate", yaxis_title="Extra Payment / Month",
+            height=400,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # =================================================================
+    # Section 5: Conservative vs Optimistic scenarios
+    # =================================================================
+    st.markdown("---")
+    st.subheader("Scenario Range: Conservative vs Median vs Optimistic")
+    st.caption("Based on 25th, 50th, and 75th percentile of historical rolling 10-year windows")
+
+    scenario_extra = st.selectbox(
+        "Extra payment amount for scenario comparison",
+        options=[2000, 5000, 10000],
+        index=1,
+        format_func=lambda x: f"{x:,} kr/mo",
+    )
+
+    scenario_sets = [
+        ("Conservative (25th pctl)", CONSERVATIVE_ALTERNATIVES),
+        ("Median (50th pctl)", DEFAULT_ALTERNATIVES),
+        ("Optimistic (75th pctl)", OPTIMISTIC_ALTERNATIVES),
+    ]
+
+    scenario_cols = st.columns(3)
+    for col, (label, alts) in zip(scenario_cols, scenario_sets):
+        with col:
+            st.markdown(f"**{label}**")
+            res = analyze_extra_payments(mortgage, [scenario_extra], alternatives=alts)
+            sc = res["scenarios"][0]
+            mort_w = sc["mortgage_paydown_wealth"][-1]
+            st.markdown(f"Mortgage paydown: **{format_nok(mort_w)}**")
+            for alt_name, alt_data in sc["alternatives"].items():
+                val = alt_data["net_at_end"]
+                icon = "+" if val > mort_w else "-"
+                short = alt_name.split("(")[0].strip()[:22]
+                st.markdown(f"- {short} ({alt_data['alt_return']*100:.1f}%): "
+                            f"**{format_nok(val)}**")
+
+    # Summary
+    st.markdown("---")
+    with st.expander("Summary & Decision Framework"):
+        st.markdown(f"""
+**Your effective mortgage cost after rentefradrag: {effective_rate*100:.2f}%**
+
+**Rule of thumb:**
+- If you can earn **> {effective_rate*100:.1f}%** after tax elsewhere: invest
+- If not: pay down the mortgage
+
+**Historical verdict at {mortgage.annual_interest_rate*100:.1f}% mortgage rate:**
+
+| Factor | Detail |
+|--------|--------|
+| **MSCI World median** | {HISTORICAL_RETURNS['msci_world']['rolling_10yr']['median']*100:.1f}% pre-tax, ~{HISTORICAL_RETURNS['msci_world']['rolling_10yr']['median']*(1-STOCK_GAIN_TAX_RATE)*100:.2f}% after ASK tax |
+| **S&P 500 median** | {HISTORICAL_RETURNS['sp500']['rolling_10yr']['median']*100:.1f}% pre-tax, ~{HISTORICAL_RETURNS['sp500']['rolling_10yr']['median']*(1-STOCK_GAIN_TAX_RATE)*100:.2f}% after ASK tax |
+| **Global bonds** | {HISTORICAL_RETURNS['global_bonds']['long_term_avg']*100:.1f}% pre-tax, ~{HISTORICAL_RETURNS['global_bonds']['long_term_avg']*(1-CAPITAL_INCOME_TAX_RATE)*100:.2f}% after tax |
+| **20yr S&P 500 worst** | {HISTORICAL_RETURNS['sp500']['rolling_20yr']['worst']*100:.1f}%/yr — no negative 20yr window ever |
+
+**Factors beyond pure return:**
+- Mortgage paydown is **risk-free** (guaranteed {effective_rate*100:.2f}% return)
+- Stocks average higher but can drop 30–50% in any given year
+- **Liquidity:** extra mortgage payments are locked in; investments are accessible
+- **Behavioral:** forced paydown builds discipline; investments can be raided
+- **Flexibility:** lower mortgage = lower required income
+
+**Data sources:** S&P 500 (QuantFlowLab, Crestmont Research 1926–2024), MSCI World (MSCI factsheet, Curvo.eu 1970–2024),
+Global Bonds (Bloomberg Global Agg, Alliance Bernstein), Norwegian CPI (SSB, World Bank).
 """)
