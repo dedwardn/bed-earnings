@@ -13,6 +13,9 @@ Key insight: the effective mortgage cost after rentefradrag is:
   rate × (1 - 0.22) = rate × 0.78
 So at 5%, your effective cost is 3.9%. An alternative investment must
 return more than 3.9% AFTER TAX to beat paying down the mortgage.
+
+Investment return assumptions are grounded in historical rolling-window
+data from major indices (see HISTORICAL_RETURNS below).
 """
 
 from dataclasses import dataclass
@@ -26,6 +29,74 @@ import math
 RENTEFRADRAG_RATE = 0.22
 STOCK_GAIN_TAX_RATE = 0.3784       # Aksjesparekonto effective rate (22% × 1.72 oppjustering)
 CAPITAL_INCOME_TAX_RATE = 0.22     # Rental income, bank interest, etc.
+
+
+# ---------------------------------------------------------------------------
+# Historical rolling-window return data
+# ---------------------------------------------------------------------------
+# Sources: S&P 500 (1926-2024), MSCI World (1970-2024), Bloomberg Agg (1990-2024)
+# All figures are annualized nominal total returns in USD.
+# Norwegian investors face additional currency risk; NOK has historically
+# depreciated vs USD, making USD-denominated returns slightly higher in NOK
+# terms over long periods.
+
+HISTORICAL_RETURNS = {
+    "sp500": {
+        "description": "S&P 500 Total Return (USD, nominal)",
+        "source": "1926–2024, ~89 rolling 10-year windows",
+        "rolling_10yr": {
+            "worst": -0.015,      # Starting 1999 (dot-com + GFC)
+            "p25": 0.065,
+            "median": 0.100,
+            "p75": 0.135,
+            "best": 0.201,        # Starting 1949
+        },
+        "rolling_20yr": {
+            "worst": 0.031,       # No negative 20-year window
+            "median": 0.107,
+            "best": 0.178,
+        },
+    },
+    "msci_world": {
+        "description": "MSCI World Index (USD, net total return)",
+        "source": "1970–2024, ~45 rolling 10-year windows",
+        "rolling_10yr": {
+            "worst": 0.002,       # 2000–2009 (dot-com + GFC)
+            "p25": 0.055,
+            "median": 0.0808,
+            "p75": 0.110,
+            "best": 0.155,
+        },
+        "rolling_20yr": {
+            "worst": 0.025,
+            "median": 0.085,
+            "best": 0.130,
+        },
+        "long_term_avg": 0.0888,  # 1986–2025
+    },
+    "global_bonds": {
+        "description": "Bloomberg Global Aggregate Bond Index",
+        "source": "1990–2024",
+        "rolling_10yr": {
+            "worst": -0.02,       # 2013–2023 (rate hike cycle)
+            "p25": 0.025,
+            "median": 0.048,
+            "p75": 0.065,
+            "best": 0.09,
+        },
+        "long_term_avg": 0.048,
+    },
+    "oslo_bors": {
+        "description": "Oslo Børs (OSEBX)",
+        "source": "1997–2021 (World Bank / TheGlobalEconomy)",
+        "arithmetic_mean": 0.1202,
+    },
+    "norwegian_inflation": {
+        "avg_25yr": 0.0244,       # 2000–2024
+        "avg_20yr": 0.021,        # 2000–2019 (pre-spike)
+        "recent_decade_avg": 0.0295,  # 2015–2024
+    },
+}
 
 
 @dataclass
@@ -52,17 +123,81 @@ class AlternativeInvestment:
     annual_return: float           # Pre-tax nominal return
     tax_rate: float                # Tax on gains at exit
     risk_level: str = "medium"     # "low", "medium", "high"
+    historical_basis: str = ""     # Which historical figure this is based on
 
 
 # ---------------------------------------------------------------------------
-# Default alternatives
+# Default alternatives – grounded in historical rolling 10-year medians
 # ---------------------------------------------------------------------------
 DEFAULT_ALTERNATIVES = [
-    AlternativeInvestment("Global index fund (ASK)", 0.07, STOCK_GAIN_TAX_RATE, "medium"),
-    AlternativeInvestment("Norwegian equity (ASK)", 0.08, STOCK_GAIN_TAX_RATE, "high"),
-    AlternativeInvestment("Bond fund", 0.04, CAPITAL_INCOME_TAX_RATE, "low"),
-    AlternativeInvestment("High-yield savings", 0.035, CAPITAL_INCOME_TAX_RATE, "low"),
-    AlternativeInvestment("Rental property (leveraged)", 0.10, CAPITAL_INCOME_TAX_RATE, "high"),
+    AlternativeInvestment(
+        "Global index fund (ASK)",
+        HISTORICAL_RETURNS["msci_world"]["rolling_10yr"]["median"],  # 8.08%
+        STOCK_GAIN_TAX_RATE, "medium",
+        "MSCI World rolling 10yr median",
+    ),
+    AlternativeInvestment(
+        "Norwegian/US equity (ASK)",
+        HISTORICAL_RETURNS["sp500"]["rolling_10yr"]["median"],  # 10.0%
+        STOCK_GAIN_TAX_RATE, "high",
+        "S&P 500 rolling 10yr median",
+    ),
+    AlternativeInvestment(
+        "Bond fund",
+        HISTORICAL_RETURNS["global_bonds"]["long_term_avg"],  # 4.8%
+        CAPITAL_INCOME_TAX_RATE, "low",
+        "Bloomberg Global Agg 30yr avg",
+    ),
+    AlternativeInvestment(
+        "High-yield savings",
+        0.035,
+        CAPITAL_INCOME_TAX_RATE, "low",
+        "Current Norwegian market rate",
+    ),
+]
+
+# Conservative scenario: 25th percentile rolling 10yr returns
+CONSERVATIVE_ALTERNATIVES = [
+    AlternativeInvestment(
+        "Global index (conservative)",
+        HISTORICAL_RETURNS["msci_world"]["rolling_10yr"]["p25"],  # 5.5%
+        STOCK_GAIN_TAX_RATE, "medium",
+        "MSCI World rolling 10yr 25th pctl",
+    ),
+    AlternativeInvestment(
+        "US equity (conservative)",
+        HISTORICAL_RETURNS["sp500"]["rolling_10yr"]["p25"],  # 6.5%
+        STOCK_GAIN_TAX_RATE, "high",
+        "S&P 500 rolling 10yr 25th pctl",
+    ),
+    AlternativeInvestment(
+        "Bond fund (conservative)",
+        HISTORICAL_RETURNS["global_bonds"]["rolling_10yr"]["worst"],  # -2%
+        CAPITAL_INCOME_TAX_RATE, "low",
+        "Bloomberg Global Agg rolling 10yr worst",
+    ),
+]
+
+# Optimistic scenario: 75th percentile rolling 10yr returns
+OPTIMISTIC_ALTERNATIVES = [
+    AlternativeInvestment(
+        "Global index (optimistic)",
+        HISTORICAL_RETURNS["msci_world"]["rolling_10yr"]["p75"],  # 11.0%
+        STOCK_GAIN_TAX_RATE, "medium",
+        "MSCI World rolling 10yr 75th pctl",
+    ),
+    AlternativeInvestment(
+        "US equity (optimistic)",
+        HISTORICAL_RETURNS["sp500"]["rolling_10yr"]["p75"],  # 13.5%
+        STOCK_GAIN_TAX_RATE, "high",
+        "S&P 500 rolling 10yr 75th pctl",
+    ),
+    AlternativeInvestment(
+        "Bond fund (optimistic)",
+        HISTORICAL_RETURNS["global_bonds"]["rolling_10yr"]["best"],  # 9.0%
+        CAPITAL_INCOME_TAX_RATE, "low",
+        "Bloomberg Global Agg rolling 10yr best",
+    ),
 ]
 
 
@@ -298,6 +433,32 @@ def analyze_extra_payments(
 # Display
 # ---------------------------------------------------------------------------
 
+def _estimate_pct_beating_hurdle(rolling_10yr: dict, hurdle: float) -> float:
+    """
+    Estimate what percentage of historical rolling 10yr windows beat a hurdle rate.
+    Uses linear interpolation between known percentile points.
+    """
+    points = [
+        (0.0, rolling_10yr["worst"]),
+        (0.25, rolling_10yr["p25"]),
+        (0.50, rolling_10yr["median"]),
+        (0.75, rolling_10yr["p75"]),
+        (1.0, rolling_10yr["best"]),
+    ]
+    if hurdle <= points[0][1]:
+        return 100.0
+    if hurdle >= points[-1][1]:
+        return 0.0
+    for i in range(len(points) - 1):
+        pct_lo, ret_lo = points[i]
+        pct_hi, ret_hi = points[i + 1]
+        if ret_lo <= hurdle <= ret_hi:
+            frac = (hurdle - ret_lo) / (ret_hi - ret_lo)
+            pct_at_hurdle = pct_lo + frac * (pct_hi - pct_lo)
+            return (1.0 - pct_at_hurdle) * 100
+    return 50.0
+
+
 def format_nok(amount):
     if amount < 0:
         return f"-{abs(amount):,.0f} kr".replace(",", " ")
@@ -431,12 +592,47 @@ def print_analysis(results, milestones=None):
 
     print(f"\n  (Interest saved over full loan term, after 22% rentefradrag)")
 
+    # --- Historical context ---
+    print(f"\n\n  {'HISTORICAL ROLLING-WINDOW CONTEXT':^{w}}")
+    print("  " + "-" * (w - 4))
+    print(f"  Return assumptions grounded in actual historical data:\n")
+
+    for key, label, tax in [
+        ("msci_world", "MSCI World (global index)", STOCK_GAIN_TAX_RATE),
+        ("sp500", "S&P 500 (US equity)", STOCK_GAIN_TAX_RATE),
+        ("global_bonds", "Global bonds", CAPITAL_INCOME_TAX_RATE),
+    ]:
+        data = HISTORICAL_RETURNS[key]
+        r10 = data["rolling_10yr"]
+        print(f"  {label} — {data['source']}")
+        print(f"    Rolling 10yr:  worst {r10['worst']*100:+.1f}%  |  median {r10['median']*100:.1f}%"
+              f"  |  best {r10['best']*100:.1f}%")
+        if "rolling_20yr" in data:
+            r20 = data["rolling_20yr"]
+            print(f"    Rolling 20yr:  worst {r20['worst']*100:+.1f}%  |  median {r20['median']*100:.1f}%"
+                  f"  |  best {r20['best']*100:.1f}%")
+
+        eff = results["effective_rate"]
+        needed_pretax = eff / (1 - tax)
+        pct_beating = _estimate_pct_beating_hurdle(r10, needed_pretax)
+        print(f"    → Need {needed_pretax*100:.2f}% pre-tax to beat mortgage"
+              f" → ~{pct_beating:.0f}% of historical 10yr windows beat this")
+        print()
+
+    print(f"  Norwegian inflation: 25yr avg {HISTORICAL_RETURNS['norwegian_inflation']['avg_25yr']*100:.1f}%,"
+          f" recent decade {HISTORICAL_RETURNS['norwegian_inflation']['recent_decade_avg']*100:.1f}%"
+          f" (2022–23 spike pulls recent average up)")
+
     # --- Summary ---
     print(f"\n\n{'=' * w}")
     print("  SUMMARY".center(w))
     print("=" * w)
 
     eff = results["effective_rate"]
+    msci_med = HISTORICAL_RETURNS["msci_world"]["rolling_10yr"]["median"]
+    msci_after = msci_med * (1 - STOCK_GAIN_TAX_RATE)
+    savings_rate = 0.035
+    savings_after = savings_rate * (1 - CAPITAL_INCOME_TAX_RATE)
     print(f"""
   Your effective mortgage cost after rentefradrag: {eff*100:.2f}%
 
@@ -444,11 +640,16 @@ def print_analysis(results, milestones=None):
   • If you can earn > {eff*100:.1f}% after tax elsewhere → invest
   • If not → pay down the mortgage
 
-  In practice with Norwegian tax rates:
-  • Global index fund at 7% → after {STOCK_GAIN_TAX_RATE*100:.1f}% tax = {7*(1-STOCK_GAIN_TAX_RATE):.2f}%
-    → {'BEATS' if 0.07*(1-STOCK_GAIN_TAX_RATE) > eff else 'LOSES to'} mortgage at {m.annual_interest_rate*100:.1f}%
-  • Savings account at 3.5% → after {CAPITAL_INCOME_TAX_RATE*100:.0f}% tax = {3.5*(1-CAPITAL_INCOME_TAX_RATE):.2f}%
-    → {'BEATS' if 0.035*(1-CAPITAL_INCOME_TAX_RATE) > eff else 'LOSES to'} mortgage at {m.annual_interest_rate*100:.1f}%
+  HISTORICAL VERDICT (at your mortgage rate of {m.annual_interest_rate*100:.1f}%):
+  • Global index fund (MSCI World median {msci_med*100:.1f}%) → after {STOCK_GAIN_TAX_RATE*100:.1f}% tax = {msci_after*100:.2f}%
+    → {'BEATS' if msci_after > eff else 'LOSES to'} mortgage — and has done so in ~{_estimate_pct_beating_hurdle(HISTORICAL_RETURNS["msci_world"]["rolling_10yr"], eff / (1 - STOCK_GAIN_TAX_RATE)):.0f}% of rolling 10yr windows
+  • Savings account at {savings_rate*100:.1f}% → after {CAPITAL_INCOME_TAX_RATE*100:.0f}% tax = {savings_after*100:.2f}%
+    → {'BEATS' if savings_after > eff else 'LOSES to'} mortgage at {m.annual_interest_rate*100:.1f}%
+
+  20-YEAR PERSPECTIVE:
+  • No 20-year rolling window for S&P 500 has returned below {HISTORICAL_RETURNS["sp500"]["rolling_20yr"]["worst"]*100:.1f}%
+  • MSCI World 20yr worst: {HISTORICAL_RETURNS["msci_world"]["rolling_20yr"]["worst"]*100:.1f}% — still marginal vs mortgage
+  • Longer horizons strongly favor equities, but past performance ≠ guaranteed future
 
   FACTORS BEYOND PURE RETURN:
   • Mortgage paydown is RISK-FREE (guaranteed {eff*100:.2f}% return)
@@ -620,7 +821,6 @@ def generate_charts(results, output_dir="output"):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Example: typical Norwegian mortgage
     mortgage = MortgageDetails(
         remaining_balance=3_500_000,
         annual_interest_rate=0.05,
@@ -630,12 +830,43 @@ if __name__ == "__main__":
 
     extra_amounts = [2_000, 5_000, 10_000]
 
+    # Main analysis with median historical returns
     results = analyze_extra_payments(
         mortgage,
         extra_amounts,
         alternatives=DEFAULT_ALTERNATIVES,
     )
-
     print_analysis(results)
     generate_charts(results)
-    print("\nAll charts saved to output/")
+
+    # Conservative scenario (25th percentile returns)
+    print("\n" + "=" * 100)
+    print("  CONSERVATIVE SCENARIO (25th percentile rolling 10yr returns)".center(100))
+    print("=" * 100)
+    conservative_results = analyze_extra_payments(
+        mortgage, [5_000], alternatives=CONSERVATIVE_ALTERNATIVES,
+    )
+    for sc in conservative_results["scenarios"]:
+        extra = sc["extra_monthly"]
+        print(f"\n  Extra {format_nok(extra)}/mo — conservative market returns:")
+        mort_w = sc["mortgage_paydown_wealth"][-1]
+        print(f"    Mortgage paydown wealth at year {mortgage.remaining_years}: {format_nok(mort_w)}")
+        for alt_name, alt_data in sc["alternatives"].items():
+            print(f"    {alt_name} ({alt_data['alt_return']*100:.1f}%): {format_nok(alt_data['net_at_end'])}")
+
+    # Optimistic scenario (75th percentile returns)
+    print("\n" + "=" * 100)
+    print("  OPTIMISTIC SCENARIO (75th percentile rolling 10yr returns)".center(100))
+    print("=" * 100)
+    optimistic_results = analyze_extra_payments(
+        mortgage, [5_000], alternatives=OPTIMISTIC_ALTERNATIVES,
+    )
+    for sc in optimistic_results["scenarios"]:
+        extra = sc["extra_monthly"]
+        print(f"\n  Extra {format_nok(extra)}/mo — optimistic market returns:")
+        mort_w = sc["mortgage_paydown_wealth"][-1]
+        print(f"    Mortgage paydown wealth at year {mortgage.remaining_years}: {format_nok(mort_w)}")
+        for alt_name, alt_data in sc["alternatives"].items():
+            print(f"    {alt_name} ({alt_data['alt_return']*100:.1f}%): {format_nok(alt_data['net_at_end'])}")
+
+    print("\n\nAll charts saved to output/")
