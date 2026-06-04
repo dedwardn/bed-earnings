@@ -679,6 +679,24 @@ elif page == "Extra Payments vs Investing":
     epa_extra_3 = st.sidebar.number_input("Scenario 3 (NOK/mo)", value=10_000, step=500, key="epa_e3")
     epa_extras = sorted(set(int(e) for e in [epa_extra_1, epa_extra_2, epa_extra_3] if e > 0))
 
+    st.sidebar.markdown("---")
+    st.sidebar.header("Freed Cashflow")
+    st.sidebar.caption("Once you pay off the mortgage early, the freed-up payment "
+                       "gets invested. What return do you assume on it?")
+    epa_reinvest_choice = st.sidebar.selectbox(
+        "Reinvest freed cash at",
+        ["High-yield savings (3.5%, risk-free)", "Bond fund (4.8%)",
+         "Global index (8.1%)", "US equity (10.0%)"],
+        index=0, key="epa_reinvest",
+    )
+    _reinvest_map = {
+        "High-yield savings (3.5%, risk-free)": (0.035, CAPITAL_INCOME_TAX_RATE),
+        "Bond fund (4.8%)": (0.048, CAPITAL_INCOME_TAX_RATE),
+        "Global index (8.1%)": (0.0808, STOCK_GAIN_TAX_RATE),
+        "US equity (10.0%)": (0.10, STOCK_GAIN_TAX_RATE),
+    }
+    epa_reinvest_return, epa_reinvest_tax = _reinvest_map[epa_reinvest_choice]
+
     mortgage = EPAMortgageDetails(
         remaining_balance=epa_balance,
         annual_interest_rate=epa_rate / 100,
@@ -847,7 +865,10 @@ elif page == "Extra Payments vs Investing":
         st.markdown("---")
         st.subheader("Extra Payment Scenarios")
 
-        results = analyze_extra_payments(mortgage, epa_extras, alternatives=DEFAULT_ALTERNATIVES)
+        results = analyze_extra_payments(
+            mortgage, epa_extras, alternatives=DEFAULT_ALTERNATIVES,
+            reinvest_return=epa_reinvest_return, reinvest_tax=epa_reinvest_tax,
+        )
 
         # Baseline info
         baseline_interest = results["baseline_total_interest"]
@@ -899,16 +920,17 @@ elif page == "Extra Payments vs Investing":
                     name=f"Mortgage paydown", line=dict(color="#2196F3", width=3),
                 ))
                 alt_colors = ["#66BB6A", "#FF7043", "#AB47BC", "#EF5350"]
+                reinvest_pct = results["reinvest_return"] * 100
                 for i, (alt_name, alt_data) in enumerate(sc["alternatives"].items()):
-                    sched = alt_data["schedule"]
-                    alt_w = [s["net_after_tax"] for s in sched][:epa_years]
+                    alt_w = alt_data["wealth_by_year"][:epa_years]
                     fig.add_trace(go.Scatter(
                         x=list(range(1, len(alt_w)+1)), y=alt_w,
                         name=f"{alt_name} ({alt_data['alt_return']*100:.1f}%)",
                         line=dict(color=alt_colors[i % len(alt_colors)], width=1.5),
                     ))
                 fig.update_layout(
-                    title=f"Net Wealth: +{format_nok(extra)}/mo Mortgage Paydown vs Alternatives",
+                    title=f"Net Wealth: +{format_nok(extra)}/mo Mortgage Paydown vs Alternatives "
+                          f"(equal budget; freed cash reinvested at {reinvest_pct:.1f}%)",
                     xaxis_title="Years", yaxis_title="Net Wealth Gain (NOK)",
                     yaxis_tickformat=",", hovermode="x unified", height=500,
                 )
@@ -922,8 +944,8 @@ elif page == "Extra Payments vs Investing":
                     row = {"Year": y, "Mortgage Paydown": format_nok(sc["mortgage_paydown_wealth"][y-1])}
                     best_name, best_val = "Mortgage", sc["mortgage_paydown_wealth"][y-1]
                     for alt_name, alt_data in sc["alternatives"].items():
-                        sched = alt_data["schedule"]
-                        val = sched[y-1]["net_after_tax"] if y <= len(sched) else alt_data["net_at_end"]
+                        wba = alt_data["wealth_by_year"]
+                        val = wba[y-1] if y <= len(wba) else alt_data["net_at_end"]
                         row[alt_name[:25]] = format_nok(val)
                         if val > best_val:
                             best_name, best_val = alt_name, val
@@ -996,7 +1018,9 @@ elif page == "Extra Payments vs Investing":
     # =================================================================
     st.markdown("---")
     st.subheader("Scenario Range: Conservative vs Median vs Optimistic")
-    st.caption("Based on 25th, 50th, and 75th percentile of historical rolling 10-year windows")
+    st.caption("Based on 25th, 50th, and 75th percentile of historical rolling 10-year windows. "
+               "Mortgage paydown is identical across columns — it doesn't depend on how markets perform. "
+               "✓ = beats mortgage paydown, ✗ = mortgage wins.")
 
     scenario_extra = st.selectbox(
         "Extra payment amount for scenario comparison",
@@ -1015,15 +1039,18 @@ elif page == "Extra Payments vs Investing":
     for col, (label, alts) in zip(scenario_cols, scenario_sets):
         with col:
             st.markdown(f"**{label}**")
-            res = analyze_extra_payments(mortgage, [scenario_extra], alternatives=alts)
+            res = analyze_extra_payments(
+                mortgage, [scenario_extra], alternatives=alts,
+                reinvest_return=epa_reinvest_return, reinvest_tax=epa_reinvest_tax,
+            )
             sc = res["scenarios"][0]
             mort_w = sc["mortgage_paydown_wealth"][-1]
             st.markdown(f"Mortgage paydown: **{format_nok(mort_w)}**")
             for alt_name, alt_data in sc["alternatives"].items():
                 val = alt_data["net_at_end"]
-                icon = "+" if val > mort_w else "-"
+                icon = "✓" if val > mort_w else "✗"
                 short = alt_name.split("(")[0].strip()[:22]
-                st.markdown(f"- {short} ({alt_data['alt_return']*100:.1f}%): "
+                st.markdown(f"- {icon} {short} ({alt_data['alt_return']*100:.1f}%): "
                             f"**{format_nok(val)}**")
 
     # Summary

@@ -296,14 +296,90 @@ def simulate_investment(monthly_amount, annual_return, years, tax_rate):
     return schedule
 
 
+def simulate_committed_budget(
+    mortgage: MortgageDetails,
+    extra: float,
+    frac_to_prepay: float,
+    invest_return: float,
+    invest_tax: float,
+    horizon_years: int,
+):
+    """
+    Equal-budget net-worth simulation.
+
+    Every month the same total budget is committed: the normal mortgage
+    payment PLUS `extra`. `frac_to_prepay` (0..1) decides how much of `extra`
+    is thrown at the mortgage principal; whatever budget the mortgage does not
+    consume is invested at `invest_return`. Once the mortgage is fully repaid,
+    the ENTIRE budget flows into investments (the "freed cashflow" phase that
+    the old model ignored).
+
+    This puts "prepay the mortgage" (frac_to_prepay=1) and "invest the extra"
+    (frac_to_prepay=0) on identical footing: same cash out the door, compared
+    on net worth = (investment value after exit tax) − (remaining mortgage).
+
+    Returns a list of net worth by year-end (length horizon_years).
+    """
+    mr = mortgage.annual_interest_rate / 12
+    total_months = mortgage.remaining_years * 12
+
+    if mortgage.loan_type == "annuity":
+        base_payment = calculate_annuity_payment(
+            mortgage.remaining_balance, mortgage.annual_interest_rate, total_months
+        )
+    else:
+        base_payment = mortgage.remaining_balance / total_months + mortgage.remaining_balance * mr
+
+    monthly_budget = base_payment + extra
+    invest_mr = (1 + invest_return) ** (1 / 12) - 1
+
+    balance = mortgage.remaining_balance
+    fund = 0.0
+    invested = 0.0
+    networth_by_year = []
+
+    for month in range(1, horizon_years * 12 + 1):
+        if balance > 0.01:
+            interest = balance * mr
+            if mortgage.loan_type == "annuity":
+                sched_principal = base_payment - interest
+            else:
+                sched_principal = mortgage.remaining_balance / total_months
+            prepay = extra * frac_to_prepay
+            principal = min(sched_principal + prepay, balance)
+            balance = max(0.0, balance - principal)
+            mortgage_outlay = interest + principal
+        else:
+            mortgage_outlay = 0.0
+
+        leftover = max(0.0, monthly_budget - mortgage_outlay)
+        fund = fund * (1 + invest_mr) + leftover
+        invested += leftover
+
+        if month % 12 == 0:
+            gain = fund - invested
+            tax = max(0.0, gain * invest_tax)
+            networth_by_year.append((fund - tax) - balance)
+
+    return networth_by_year
+
+
 def analyze_extra_payments(
     mortgage: MortgageDetails,
     extra_amounts: list[float],
     alternatives: Optional[list[AlternativeInvestment]] = None,
     analysis_years: Optional[int] = None,
+    reinvest_return: float = 0.035,
+    reinvest_tax: float = CAPITAL_INCOME_TAX_RATE,
 ):
     """
     Full analysis comparing extra mortgage payments vs alternative investments.
+
+    `reinvest_return`/`reinvest_tax` set what the prepay strategy does with the
+    cashflow freed up once the mortgage is paid off early. Default is the
+    risk-free high-yield savings rate (3.5%), so the "Mortgage paydown" line
+    represents the conservative, guaranteed strategy: prepay aggressively, then
+    park the freed payments safely.
 
     Returns a dict with all results for display/charting.
     """
@@ -327,6 +403,8 @@ def analyze_extra_payments(
 
     effective_rate = mortgage.annual_interest_rate * (1 - RENTEFRADRAG_RATE)
     results["effective_rate"] = effective_rate
+    results["reinvest_return"] = reinvest_return
+    results["reinvest_tax"] = reinvest_tax
     results["breakeven_returns"] = {}
 
     for alt in alternatives:
@@ -403,23 +481,39 @@ def analyze_extra_payments(
 
         scenario["cumulative_interest_saved_after_tax"] = cumulative_interest_saved
 
-        # Total mortgage paydown wealth = extra equity + cumulative interest savings
+        # --- Mortgage paydown wealth (equal-budget net-worth model) ---
+        # Prepay all `extra` into the mortgage, then invest the freed cashflow
+        # at the (conservative) reinvest rate once the loan is gone. Net worth
+        # is measured as a GAIN vs doing nothing with the extra, so we add back
+        # the baseline balance: gain = (fund − prepay_balance) + baseline_balance
+        #                            = fund + equity_gain.
+        # This captures BOTH the interest saved and the reinvested freed cash,
+        # and never collapses the way the old equity-gap formula did.
+        prepay_networth = simulate_committed_budget(
+            mortgage, extra, frac_to_prepay=1.0,
+            invest_return=reinvest_return, invest_tax=reinvest_tax,
+            horizon_years=analysis_years,
+        )
         scenario["mortgage_paydown_wealth"] = [
-            eq + isv for eq, isv in zip(
-                scenario["equity_gain_by_year"],
-                cumulative_interest_saved,
-            )
+            nw + bb for nw, bb in zip(prepay_networth, balance_baseline)
         ]
 
-        # Alternative: invest the extra monthly in each alternative
+        # --- Alternatives: invest the extra monthly, same equal-budget basis ---
+        # (base → mortgage on schedule, extra → fund; after the baseline loan is
+        #  paid off the freed base is invested too). For the wealth GAIN series
+        #  the mortgage balance cancels against the baseline, so this equals a
+        #  straight DCA of `extra` over the horizon.
         scenario["alternatives"] = {}
         for alt in alternatives:
-            inv_sched = simulate_investment(
-                extra, alt.annual_return, analysis_years, alt.tax_rate
+            alt_networth = simulate_committed_budget(
+                mortgage, extra, frac_to_prepay=0.0,
+                invest_return=alt.annual_return, invest_tax=alt.tax_rate,
+                horizon_years=analysis_years,
             )
+            wealth_by_year = [nw + bb for nw, bb in zip(alt_networth, balance_baseline)]
             scenario["alternatives"][alt.name] = {
-                "schedule": inv_sched,
-                "net_at_end": inv_sched[-1]["net_after_tax"] if inv_sched else 0,
+                "wealth_by_year": wealth_by_year,
+                "net_at_end": wealth_by_year[-1] if wealth_by_year else 0,
                 "alt_return": alt.annual_return,
                 "alt_tax_rate": alt.tax_rate,
             }
@@ -546,8 +640,8 @@ def print_analysis(results, milestones=None):
             alt_values = {}
             for an in alt_names:
                 alt_data = sc["alternatives"][an]
-                if y <= len(alt_data["schedule"]):
-                    alt_w = alt_data["schedule"][y - 1]["net_after_tax"]
+                if y <= len(alt_data["wealth_by_year"]):
+                    alt_w = alt_data["wealth_by_year"][y - 1]
                 else:
                     alt_w = alt_data["net_at_end"]
                 alt_values[an] = alt_w
@@ -705,8 +799,7 @@ def generate_charts(results, output_dir="output"):
 
         # Alternatives
         for i, (alt_name, alt_data) in enumerate(sc["alternatives"].items()):
-            sched = alt_data["schedule"]
-            alt_wealth = [s["net_after_tax"] for s in sched][:years]
+            alt_wealth = alt_data["wealth_by_year"][:years]
             color = COLORS[(i + 1) % len(COLORS)]
             ax.plot(range(1, len(alt_wealth) + 1), alt_wealth, "-", color=color,
                     linewidth=1.5, label=f"{alt_name} ({alt_data['alt_return']*100:.0f}%)")
