@@ -954,6 +954,99 @@ elif page == "Extra Payments vs Investing":
                 st.dataframe(pd.DataFrame(m_rows), width="stretch", hide_index=True)
 
         # =================================================================
+        # Section 2b: Three leverage strategies (incl. interest-only)
+        # =================================================================
+        st.markdown("---")
+        st.subheader("Three Leverage Strategies (incl. Interest-Only)")
+        st.caption("Same monthly budget, three ways to deploy it. Interest-only "
+                   "(avdragsfrihet) never reduces principal — you keep the full loan "
+                   "outstanding and invest the principal portion, maximising both the "
+                   "tax deduction and your market exposure. All strategies reinvest the "
+                   "22% rentefradrag refund.")
+
+        lev_c1, lev_c2 = st.columns(2)
+        with lev_c1:
+            lev_extra = st.selectbox(
+                "Extra payment / month",
+                options=epa_extras,
+                index=len(epa_extras) - 1,
+                format_func=lambda x: f"{x:,} kr/mo",
+                key="lev_extra",
+            )
+        with lev_c2:
+            lev_fund_name = st.selectbox(
+                "Invest the freed money in",
+                options=[a.name for a in DEFAULT_ALTERNATIVES],
+                index=0, key="lev_fund",
+            )
+
+        lev_results = analyze_extra_payments(
+            mortgage, [lev_extra], alternatives=DEFAULT_ALTERNATIVES,
+            reinvest_return=epa_reinvest_return, reinvest_tax=epa_reinvest_tax,
+        )
+        lsc = lev_results["scenarios"][0]
+        lev_fund = next(a for a in DEFAULT_ALTERNATIVES if a.name == lev_fund_name)
+
+        prepay_series = lsc["mortgage_paydown_wealth"]
+        amort_series = lsc["alternatives"][lev_fund_name]["wealth_by_year"]
+        io_series = lsc["interest_only"][lev_fund_name]["wealth_by_year"]
+        yrs = list(range(1, len(prepay_series) + 1))
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=yrs, y=prepay_series, name="Prepay (max paydown)",
+                                 line=dict(color="#2196F3", width=2.5)))
+        fig.add_trace(go.Scatter(x=yrs, y=amort_series,
+                                 name=f"Amortize + invest extra ({lev_fund.annual_return*100:.1f}%)",
+                                 line=dict(color="#66BB6A", width=2.5)))
+        fig.add_trace(go.Scatter(x=yrs, y=io_series,
+                                 name=f"Interest-only / max leverage ({lev_fund.annual_return*100:.1f}%)",
+                                 line=dict(color="#FF7043", width=2.5)))
+        fig.update_layout(
+            title=f"Net Worth: Prepay vs Amortize vs Interest-Only — +{format_nok(lev_extra)}/mo into {lev_fund_name}",
+            xaxis_title="Years", yaxis_title="Net Worth Gain (NOK)",
+            yaxis_tickformat=",", hovermode="x unified", height=500,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        lev_rows = []
+        for y in milestones:
+            if y > len(prepay_series):
+                continue
+            vals = {"Prepay (max paydown)": prepay_series[y-1],
+                    "Amortize + invest": amort_series[y-1],
+                    "Interest-only (max leverage)": io_series[y-1]}
+            best = max(vals, key=vals.get)
+            lev_rows.append({
+                "Year": y,
+                "Prepay": format_nok(vals["Prepay (max paydown)"]),
+                "Amortize + invest": format_nok(vals["Amortize + invest"]),
+                "Interest-only": format_nok(vals["Interest-only (max leverage)"]),
+                "Best": best,
+            })
+        st.dataframe(pd.DataFrame(lev_rows), width="stretch", hide_index=True)
+
+        io_end = io_series[-1]
+        pp_end = prepay_series[-1]
+        fund_after_tax = lev_fund.annual_return * (1 - lev_fund.tax_rate)
+        if fund_after_tax > effective_rate:
+            st.success(f"At {lev_fund.annual_return*100:.1f}% ({fund_after_tax*100:.2f}% after tax), "
+                       f"interest-only ends **{format_nok(io_end)}** vs prepay **{format_nok(pp_end)}** — "
+                       f"leverage pays off because the fund beats your {effective_rate*100:.2f}% effective mortgage cost.")
+        else:
+            st.warning(f"At {lev_fund.annual_return*100:.1f}% ({fund_after_tax*100:.2f}% after tax), "
+                       f"interest-only ends **{format_nok(io_end)}** vs prepay **{format_nok(pp_end)}** — "
+                       f"leverage backfires because the fund does NOT beat your {effective_rate*100:.2f}% effective cost.")
+
+        st.error(
+            "⚠️ **Interest-only is maximum leverage — know the risks:**\n"
+            "- You still owe the **full original balance** at the end; it must be refinanced or repaid from the portfolio.\n"
+            "- A market crash near the end is devastating: the debt is fixed, the portfolio is not.\n"
+            "- Norwegian rules (*boliglånsforskrift*) generally only allow avdragsfrihet when **LTV < 60%**.\n"
+            "- Returns shown are smooth averages; real markets are volatile and sequence-of-returns matters.\n"
+            "- This is not advice — it's the arithmetic of leverage under your assumptions."
+        )
+
+        # =================================================================
         # Section 3: Balance trajectory
         # =================================================================
         st.markdown("---")

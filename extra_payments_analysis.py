@@ -299,26 +299,35 @@ def simulate_investment(monthly_amount, annual_return, years, tax_rate):
 def simulate_committed_budget(
     mortgage: MortgageDetails,
     extra: float,
-    frac_to_prepay: float,
     invest_return: float,
     invest_tax: float,
     horizon_years: int,
+    strategy: str = "amortize",
+    rentefradrag: float = RENTEFRADRAG_RATE,
 ):
     """
-    Equal-budget net-worth simulation.
+    Equal-budget net-worth simulation for three mortgage strategies.
 
     Every month the same total budget is committed: the normal mortgage
-    payment PLUS `extra`. `frac_to_prepay` (0..1) decides how much of `extra`
-    is thrown at the mortgage principal; whatever budget the mortgage does not
-    consume is invested at `invest_return`. Once the mortgage is fully repaid,
-    the ENTIRE budget flows into investments (the "freed cashflow" phase that
-    the old model ignored).
+    payment (interest + scheduled principal of an amortizing loan) PLUS `extra`.
+    Mortgage interest is charged at its AFTER-TAX cost — interest × (1 − 0.22) —
+    because the 22% rentefradrag is cash you get back, so it stays available to
+    invest. Whatever the strategy does not spend on the mortgage is invested at
+    `invest_return`.
 
-    This puts "prepay the mortgage" (frac_to_prepay=1) and "invest the extra"
-    (frac_to_prepay=0) on identical footing: same cash out the door, compared
-    on net worth = (investment value after exit tax) − (remaining mortgage).
+    Strategies (all share the identical out-of-pocket budget):
+      • "prepay"        – throw base payment + extra at the mortgage; only the
+                          tax refund is invested until it is repaid, then the
+                          whole freed-up budget flows into investments.
+      • "amortize"      – pay the normal amortizing payment, invest `extra`
+                          (plus the tax refund, and the freed base once it ends).
+      • "interest_only" – pay ONLY the interest, never reduce principal; invest
+                          the scheduled-principal portion + extra every month.
+                          The full balance stays outstanding the whole horizon,
+                          keeping the maximum interest deduction.
 
-    Returns a list of net worth by year-end (length horizon_years).
+    Compared on net worth = (investment value after exit tax) − (remaining
+    mortgage balance). Returns net worth by year-end (length horizon_years).
     """
     mr = mortgage.annual_interest_rate / 12
     total_months = mortgage.remaining_years * 12
@@ -341,18 +350,22 @@ def simulate_committed_budget(
     for month in range(1, horizon_years * 12 + 1):
         if balance > 0.01:
             interest = balance * mr
-            if mortgage.loan_type == "annuity":
-                sched_principal = base_payment - interest
+            if strategy == "interest_only":
+                principal = 0.0
             else:
-                sched_principal = mortgage.remaining_balance / total_months
-            prepay = extra * frac_to_prepay
-            principal = min(sched_principal + prepay, balance)
+                if mortgage.loan_type == "annuity":
+                    sched_principal = base_payment - interest
+                else:
+                    sched_principal = mortgage.remaining_balance / total_months
+                prepay = extra if strategy == "prepay" else 0.0
+                principal = min(sched_principal + prepay, balance)
             balance = max(0.0, balance - principal)
-            mortgage_outlay = interest + principal
+            # After-tax interest cost; the 22% refund stays investable
+            effective_outlay = interest * (1 - rentefradrag) + principal
         else:
-            mortgage_outlay = 0.0
+            effective_outlay = 0.0
 
-        leftover = max(0.0, monthly_budget - mortgage_outlay)
+        leftover = max(0.0, monthly_budget - effective_outlay)
         fund = fund * (1 + invest_mr) + leftover
         invested += leftover
 
@@ -490,30 +503,43 @@ def analyze_extra_payments(
         # This captures BOTH the interest saved and the reinvested freed cash,
         # and never collapses the way the old equity-gap formula did.
         prepay_networth = simulate_committed_budget(
-            mortgage, extra, frac_to_prepay=1.0,
-            invest_return=reinvest_return, invest_tax=reinvest_tax,
-            horizon_years=analysis_years,
+            mortgage, extra, reinvest_return, reinvest_tax,
+            analysis_years, strategy="prepay",
         )
         scenario["mortgage_paydown_wealth"] = [
             nw + bb for nw, bb in zip(prepay_networth, balance_baseline)
         ]
 
-        # --- Alternatives: invest the extra monthly, same equal-budget basis ---
-        # (base → mortgage on schedule, extra → fund; after the baseline loan is
-        #  paid off the freed base is invested too). For the wealth GAIN series
-        #  the mortgage balance cancels against the baseline, so this equals a
-        #  straight DCA of `extra` over the horizon.
+        # --- Alternatives: amortize normally, invest the extra in each fund ---
+        # (base → mortgage on schedule, extra + tax refund → fund; after the
+        #  baseline loan is paid off the freed base is invested too).
         scenario["alternatives"] = {}
         for alt in alternatives:
             alt_networth = simulate_committed_budget(
-                mortgage, extra, frac_to_prepay=0.0,
-                invest_return=alt.annual_return, invest_tax=alt.tax_rate,
-                horizon_years=analysis_years,
+                mortgage, extra, alt.annual_return, alt.tax_rate,
+                analysis_years, strategy="amortize",
             )
             wealth_by_year = [nw + bb for nw, bb in zip(alt_networth, balance_baseline)]
             scenario["alternatives"][alt.name] = {
                 "wealth_by_year": wealth_by_year,
                 "net_at_end": wealth_by_year[-1] if wealth_by_year else 0,
+                "alt_return": alt.annual_return,
+                "alt_tax_rate": alt.tax_rate,
+            }
+
+        # --- Interest-only (maximum leverage): pay only interest, invest the
+        #     scheduled principal + extra in each fund. The full balance stays
+        #     outstanding the whole horizon (subtracted from net worth). ---
+        scenario["interest_only"] = {}
+        for alt in alternatives:
+            io_networth = simulate_committed_budget(
+                mortgage, extra, alt.annual_return, alt.tax_rate,
+                analysis_years, strategy="interest_only",
+            )
+            io_wealth = [nw + bb for nw, bb in zip(io_networth, balance_baseline)]
+            scenario["interest_only"][alt.name] = {
+                "wealth_by_year": io_wealth,
+                "net_at_end": io_wealth[-1] if io_wealth else 0,
                 "alt_return": alt.annual_return,
                 "alt_tax_rate": alt.tax_rate,
             }
@@ -654,6 +680,21 @@ def print_analysis(results, milestones=None):
             best_short = best[:14]
             line += f" {best_short:>14s}"
             print(line)
+
+        # --- Three leverage strategies (for the first equity fund) ---
+        if sc.get("interest_only"):
+            ref = next((n for n in alt_names if "ndex" in n or "quity" in n), alt_names[0])
+            print(f"\n  Three leverage strategies (investing in {ref}):")
+            print(f"    {'Year':<6s} {'Prepay (max paydown)':>22s} {'Amortize + invest':>22s} {'Interest-only (max lev.)':>26s}")
+            print("    " + "-" * 78)
+            for y in milestones:
+                if y > len(sc["mortgage_paydown_wealth"]):
+                    continue
+                pp = sc["mortgage_paydown_wealth"][y - 1]
+                am = sc["alternatives"][ref]["wealth_by_year"][y - 1]
+                io = sc["interest_only"][ref]["wealth_by_year"][y - 1]
+                print(f"    {y:<6d} {format_nok(pp):>22s} {format_nok(am):>22s} {format_nok(io):>26s}")
+            print(f"    (Interest-only keeps the full balance outstanding — amplifies BOTH gains and losses)")
 
     # --- Sensitivity table ---
     print(f"\n\n  {'SENSITIVITY: Interest saved after tax by extra payment amount and rate':^{w}}")
